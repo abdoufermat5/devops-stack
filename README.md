@@ -6,6 +6,47 @@ API REST construite avec FastAPI et PostgreSQL pour gérer une liste de courses.
 
 ---
 
+
+## Prérequis — environnement de lab
+ 
+Ce lab a été réalisé sur une VM Ubuntu Desktop importée depuis [osboxes.org](https://www.osboxes.org/ubuntu/) (OVA Ubuntu 24.04) et lancée sur **VMware Workstation**.
+ 
+### Configuration VM recommandée
+ 
+| Ressource | Minimum | Recommandé | Lab utilisé |
+|---|---|---|---|
+| CPU | 2 vCPU | 4 vCPU | 4 vCPU |
+| RAM | 6 Go | 8 Go | 8 Go |
+| Stockage | 30 Go | 50 Go | 50 Go |
+| Réseau | NAT | NAT ou Bridged | NAT |
+ 
+> Avec moins de 6 Go de RAM, les pods Prometheus + Grafana peuvent être en `OOMKilled`. Si les ressources sont limitées, garder le namespace `monitoring` scalé à 0 et ne le démarrer qu'au moment des tests.
+ 
+### Logiciels requis sur la VM
+ 
+```bash
+# Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER   # puis se reconnecter
+ 
+# Git
+sudo apt-get install -y git
+ 
+# curl, jq (utilisés dans les commandes de ce README)
+sudo apt-get install -y curl jq
+```
+ 
+### Importer l'OVA sur VMware Workstation
+ 
+```
+1. Télécharge l'OVA Ubuntu 24.04 sur https://www.osboxes.org/ubuntu/
+2. VMware Workstation → File → Open → sélectionne le fichier .ova
+3. Ajuste les ressources (CPU / RAM / Disk) avant de démarrer
+4. Démarre la VM — login : osboxes / mot de passe : osboxes.org
+```
+
+---
+
 ## Stack technique
 
 | Couche | Technologie |
