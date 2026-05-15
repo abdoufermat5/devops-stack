@@ -1,0 +1,50 @@
+# -------------------------------------------------------
+# Application ArgoCD — shopping-api
+#
+# C'est le manifeste central du GitOps.
+# Il dit à ArgoCD :
+#   "Surveille ce repo Git, ce chemin, cette branche.
+#    Si l'état du cluster diverge de ce que le repo
+#    décrit → synchronise automatiquement."
+#
+# Dès qu'on fait un `git push` sur main avec une nouvelle
+# valeur dans values.yaml (ex: un nouveau tag d'image),
+# ArgoCD détecte le changement et redéploie l'app.
+# -------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shopping-api
+  # ArgoCD tourne dans son propre namespace
+  namespace: argocd
+spec:
+  project: default
+
+  # Source : où ArgoCD va chercher les manifestes
+  source:
+    # URL du repo Gitea (on la mettra à jour après l'install de Gitea)
+    repoURL: http://gitea-http.default.svc.cluster.local:3000/asadiakhou/devops-stack.git
+    targetRevision: main          # branche à surveiller
+    path: helm/shopping-api       # chemin vers le chart dans le repo
+
+    # On précise à ArgoCD que c'est un chart Helm (pas des manifestes bruts)
+    helm:
+      # On peut override des values ici sans modifier le values.yaml du repo
+      # Utile pour les différences entre environnements (dev vs prod)
+      values: |
+        replicaCount: 2
+        image:
+          tag: "latest"
+
+  # Destination : où déployer dans le cluster
+  destination:
+    server: https://kubernetes.default.svc   # le cluster local
+    namespace: default
+
+  # Politique de synchronisation
+  syncPolicy:
+    automated:
+      prune: true      # supprime les ressources K8s qui ne sont plus dans le repo
+      selfHeal: true   # si quelqu'un modifie le cluster à la main, ArgoCD corrige
+    syncOptions:
+      - CreateNamespace=true   # crée le namespace s'il n'existe pas
