@@ -7,7 +7,7 @@
 # registry pointe vers le registry local qu'on installe à l'étape 1
 image:
   repository: localhost:5000/shopping-api
-  tag: "20260515-1313"
+  tag: "20260515-143507-3180d27"
   pullPolicy: Always   # Always pour forcer le pull à chaque déploiement
 
 # Nombre de réplicas (pods) à lancer
