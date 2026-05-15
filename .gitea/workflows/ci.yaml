@@ -1,0 +1,47 @@
+name: CI — Build & Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Générer le tag
+        id: tag
+        run: |
+          TAG=$(date +%Y%m%d-%H%M%S)-$(echo ${{ github.sha }} | cut -c1-7)
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Build image
+        run: |
+          docker build \
+            -t localhost:5000/shopping-api:${{ steps.tag.outputs.TAG }} \
+            ./app
+
+      - name: Push image
+        run: |
+          docker push localhost:5000/shopping-api:${{ steps.tag.outputs.TAG }}
+
+      - name: Mettre à jour values.yaml
+        run: |
+          sed -i "s/tag: .*/tag: \"${{ steps.tag.outputs.TAG }}\"/" \
+            helm/shopping-api/values.yaml
+
+      - name: Commit et push
+        run: |
+          git config user.email "ci@gitea.local"
+          git config user.name "Gitea CI"
+          git add helm/shopping-api/values.yaml
+          git commit -m "ci: image tag → ${{ steps.tag.outputs.TAG }}"
+          git remote set-url origin \
+            http://admin:${{ secrets.GIT_TOKEN }}@192.168.175.129:30300/asadiakhou/devops-stack.git
+          git push origin main
