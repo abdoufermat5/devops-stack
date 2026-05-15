@@ -1,8 +1,8 @@
 # Shopping List API
 
-![Architecture](stack.svg)
-
 API REST construite avec FastAPI et PostgreSQL pour gérer une liste de courses. Déployée sur Kubernetes (k3s) via un pipeline GitOps complet : Gitea → Gitea Actions → ArgoCD → k3s.
+
+![Architecture](stack.svg)
 
 ---
 
@@ -57,6 +57,10 @@ devops-stack/
 │   └── application.yaml            ← manifeste ArgoCD (source Gitea → cluster)
 ├── k6/
 │   └── shopping-api-test.js        ← scénario de test de charge
+├── runner/                         ← configuration du runner Gitea Actions
+│   ├── install-runner.sh           ← script d'installation automatisé
+│   ├── act-runner.service          ← service systemd (démarrage au boot)
+│   └── README.md                   ← documentation du runner
 └── .gitea/
     └── workflows/
         └── ci.yaml                 ← pipeline CI (build → push → deploy)
@@ -129,6 +133,45 @@ Gitea Actions (runner local)
         kubectl apply (RollingUpdate — zéro downtime)
 ```
 
+### Installation du runner CI
+
+Le runner (`act_runner`) doit être installé une seule fois sur la VM host. Il tourne directement sur le host — pas dans un container — pour avoir accès au daemon Docker local et pouvoir builder des images.
+
+**1. Récupère le token d'enregistrement sur Gitea :**
+
+```
+http://<GITEA_IP>:30300/<user>/<repo>/settings/actions/runners
+→ "Create new runner" → copie le token affiché
+```
+
+**2. Lance le script d'installation :**
+
+```bash
+chmod +x runner/install-runner.sh
+./runner/install-runner.sh <GITEA_IP> <TOKEN>
+
+# Exemple :
+./runner/install-runner.sh 192.168.1.100 ClOEHoZ1PAJHFNvR...
+```
+
+Le script télécharge le binaire `act_runner`, l'enregistre sur Gitea avec le label `ubuntu-latest:host` et installe un service systemd pour le démarrer automatiquement au boot.
+
+**3. Vérifie que le runner est actif :**
+
+```bash
+sudo systemctl status act-runner
+```
+
+Puis sur Gitea : `http://<GITEA_IP>:30300/<user>/<repo>/settings/actions/runners` — `local-runner` doit apparaître avec un point vert.
+
+**Commandes utiles :**
+
+```bash
+sudo journalctl -u act-runner -f    # logs en temps réel
+sudo systemctl restart act-runner   # redémarrer
+sudo systemctl stop act-runner      # arrêter (désactive le CI)
+```
+
 ### Déclencher le CI
 
 Le CI se déclenche automatiquement sur tout push sur `main` qui modifie un fichier sous `app/`. Les commits qui touchent uniquement `helm/` sont ignorés (ce sont les commits automatiques du CI lui-même — évite la boucle infinie).
@@ -145,14 +188,214 @@ Suivre l'exécution : `http://localhost:30300/asadiakhou/devops-stack/actions`
 
 ---
 
+## Installation de l'infrastructure
+
+Cette section couvre l'installation complète du stack de zéro sur une VM Linux (Ubuntu 24).
+
+### 1. k3s
+
+```bash
+curl -sfL https://get.k3s.io | sh -
+
+# Configure kubectl sans sudo
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo chown $(id -u):$(id -g) ~/.kube/config
+export KUBECONFIG=~/.kube/config
+
+# Vérifie
+kubectl get nodes   # doit afficher le nœud en Ready
+```
+
+### 2. Helm
+
+```bash
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+# Ajoute les repos utilisés
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo add gitea-charts https://dl.gitea.com/charts/
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+```
+
+### 3. Registry Docker local
+
+k3s a besoin d'un registry accessible pour puller les images buildées par le CI.
+
+```bash
+# Lance le registry
+docker run -d -p 5000:5000 --restart=always --name registry registry:2
+
+# Configure k3s pour faire confiance à ce registry (HTTP)
+sudo mkdir -p /etc/rancher/k3s
+sudo tee /etc/rancher/k3s/registries.yaml <<EOF
+mirrors:
+  "localhost:5000":
+    endpoint:
+      - "http://localhost:5000"
+EOF
+
+sudo systemctl restart k3s
+```
+
+### 4. Gitea
+
+```bash
+helm install gitea gitea-charts/gitea \
+  --set service.http.type=NodePort \
+  --set service.http.nodePort=30300
+
+# Attends que les pods soient Running
+kubectl get pods -l app.kubernetes.io/name=gitea -w
+```
+
+Accès : `http://localhost:30300` — crée un compte admin, puis un repo `devops-stack`.
+
+Clone et pousse le contenu de ce repo :
+
+```bash
+git remote set-url origin http://localhost:30300/<user>/devops-stack.git
+git push -u origin main
+```
+
+### 5. PostgreSQL
+
+```bash
+helm install shopping-db bitnami/postgresql \
+  --set auth.username=shopping \
+  --set auth.password=shopping \
+  --set auth.database=shopping_db
+
+# Vérifie
+kubectl get pods -l app.kubernetes.io/name=postgresql -w
+```
+
+Le Service créé s'appelle `shopping-db-postgresql` — c'est le hostname utilisé dans `DATABASE_URL`.
+
+### 6. ArgoCD
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Expose l'UI en NodePort
+kubectl patch svc argocd-server -n argocd \
+  -p '{"spec": {"type": "NodePort", "ports": [{"port": 443, "nodePort": 30443, "targetPort": 8080}]}}'
+
+# Récupère le mot de passe admin
+kubectl get secret argocd-initial-admin-secret -n argocd \
+  -o jsonpath="{.data.password}" | base64 -d && echo
+
+# Attends que tous les pods ArgoCD soient Running
+kubectl get pods -n argocd -w
+```
+
+Accès UI : `https://localhost:30443` (login : `admin`).
+
+Crée le projet par défaut et déploie l'application :
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  sourceRepos: ['*']
+  destinations:
+    - namespace: '*'
+      server: '*'
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+EOF
+
+# Adapte le repoURL avec l'IP de ta VM
+kubectl apply -f argocd/application.yaml
+```
+
+### 7. Runner CI (Gitea Actions)
+
+Voir la section [Installation du runner CI](#installation-du-runner-ci) ci-dessus.
+
+### 8. Prometheus + Grafana
+
+```bash
+helm install monitoring prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --set grafana.service.type=NodePort \
+  --set grafana.service.nodePort=30900 \
+  --set prometheus.service.type=NodePort \
+  --set prometheus.service.nodePort=30090 \
+  --set alertmanager.enabled=false
+
+# Attends que tous les pods soient Running (~2-3 min)
+kubectl get pods -n monitoring -w
+```
+
+Applique le ServiceMonitor pour scraper l'API :
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: shopping-api
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app: shopping-api
+  endpoints:
+    - port: "http"
+      path: /metrics
+      interval: 15s
+EOF
+```
+
+Récupère le mot de passe Grafana :
+
+```bash
+kubectl get secret monitoring-grafana -n monitoring \
+  -o jsonpath="{.data.admin-password}" | base64 -d && echo
+```
+
+Accès Grafana : `http://localhost:30900` (login : `admin`).
+
+### 9. k6
+
+```bash
+sudo gpg --no-default-keyring \
+  --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+  --keyserver hkp://keyserver.ubuntu.com:80 \
+  --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+
+echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/k6.list
+
+sudo apt-get update && sudo apt-get install k6 -y
+```
+
+---
+
 ## Déploiement Kubernetes
 
 ### Prérequis
 
-- k3s installé et running
+- Tous les composants de la section précédente installés
 - Registry local sur `localhost:5000`
 - Gitea sur `http://localhost:30300`
 - ArgoCD sur `https://localhost:30443`
+- Runner CI actif (`sudo systemctl status act-runner`)
 
 ### Commandes utiles
 
