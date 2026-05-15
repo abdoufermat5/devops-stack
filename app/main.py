@@ -16,4 +16,3 @@ Instrumentator().instrument(app).expose(app)
 @app.get("/")
 def root():
     return {"message": "Shopping List API", "docs": "/docs"}
-# retry
