@@ -1,0 +1,30 @@
+# -------------------------------------------------------
+# Service — shopping-api
+#
+# Un Service est le point d'entrée stable vers les pods.
+# Les pods peuvent mourir et renaître avec de nouvelles IP,
+# le Service lui reste fixe. Il fait le load balancing
+# entre les pods qui matchent son selector.
+#
+# NodePort expose le service sur un port fixe de chaque
+# nœud du cluster — c'est ce qui permet d'accéder à
+# l'app depuis l'extérieur sans Ingress Controller.
+# -------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: shopping-api
+  namespace: default
+  labels:
+    app: shopping-api
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    # Le Service redirige vers tous les pods ayant ce label
+    # Doit correspondre exactement aux labels du Deployment
+    app: shopping-api
+  ports:
+    - protocol: TCP
+      port: {{ .Values.service.port }}         # port interne au cluster
+      targetPort: 8000                         # port du conteneur
+      nodePort: {{ .Values.service.nodePort }} # port externe (30800)

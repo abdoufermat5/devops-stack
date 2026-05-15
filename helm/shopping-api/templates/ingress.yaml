@@ -1,0 +1,67 @@
+# -------------------------------------------------------
+# Ingress — shopping-api
+#
+# Un Ingress est un routeur HTTP qui fonctionne au-dessus
+# des Services. Là où un NodePort expose un seul service
+# sur un port dédié, l'Ingress permet de router plusieurs
+# services sur le port 80/443 en fonction de l'URL.
+#
+# k3s embarque Traefik comme Ingress Controller par défaut
+# — pas besoin de l'installer, il tourne déjà.
+#
+# Avec cette config, les requêtes vers :
+#   http://<node-ip>/api/  → redirigées vers le Service shopping-api
+#   http://<node-ip>/docs  → Swagger UI de FastAPI (pratique pour tester)
+# -------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shopping-api
+  namespace: default
+  annotations:
+    # Traefik lit ces annotations pour configurer le routing
+
+    # Réécriture d'URL : supprime le préfixe /api avant de transmettre
+    # au pod. Sans ça, FastAPI verrait /api/products au lieu de /products.
+    traefik.ingress.kubernetes.io/router.middlewares: default-strip-api-prefix@kubernetescrd
+
+    # Autorise les requêtes HTTP (pas seulement HTTPS)
+    # En prod, on forcerait la redirection HTTPS
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  # ingressClassName désigne quel Ingress Controller doit
+  # traiter cette règle. k3s installe Traefik sous ce nom.
+  ingressClassName: traefik
+
+  rules:
+    # On n'utilise pas de hostname ici pour simplifier le lab.
+    # En prod, on mettrait : host: api.mondomaine.com
+    - http:
+        paths:
+          # Toutes les requêtes qui commencent par /api/
+          # sont routées vers le Service shopping-api
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: shopping-api
+                port:
+                  number: 8000
+
+          # Les requêtes /docs et /openapi.json passent directement
+          # sans réécriture — utile pour accéder au Swagger UI
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: shopping-api
+                port:
+                  number: 8000
+
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: shopping-api
+                port:
+                  number: 8000

@@ -1,0 +1,90 @@
+# -------------------------------------------------------
+# Deployment — shopping-api
+#
+# Un Deployment est l'objet K8s qui dit :
+# "Je veux N pods qui tournent en permanence avec
+#  cette image, ces ressources et ces variables d'env."
+#
+# Kubernetes s'assure en permanence que le nombre
+# de pods correspond à replicaCount. Si un pod plante,
+# il en relance un automatiquement.
+# -------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopping-api
+  namespace: default
+  labels:
+    app: shopping-api
+spec:
+  # Nombre de pods à maintenir en vie
+  replicas: {{ .Values.replicaCount }}
+
+  # Le selector doit correspondre aux labels des pods ci-dessous
+  # C'est comme ça que le Deployment "sait" quels pods lui appartiennent
+  selector:
+    matchLabels:
+      app: shopping-api
+
+  # Stratégie de mise à jour : RollingUpdate signifie que K8s
+  # déploie les nouveaux pods avant de tuer les anciens.
+  # Résultat : zéro downtime lors d'un redéploiement ArgoCD.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # jamais moins de 2 pods dispos pendant le déploiement
+      maxSurge: 1         # on peut temporairement avoir 3 pods (2+1) pendant la transition
+
+  template:
+    metadata:
+      labels:
+        app: shopping-api
+      # Ces annotations permettent à Prometheus de découvrir ce pod
+      # et de scraper automatiquement l'endpoint /metrics
+      annotations:
+        prometheus.io/scrape: "{{ .Values.monitoring.enabled }}"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "{{ .Values.monitoring.metricsPath }}"
+    spec:
+      containers:
+        - name: shopping-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+
+          # envFrom injecte TOUT le contenu du Secret comme variables d'env
+          # Le pod verra DATABASE_URL disponible, exactement comme dans docker-compose
+          envFrom:
+            - secretRef:
+                name: shopping-api-db-secret
+
+          # Variables d'env supplémentaires (non sensibles)
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+
+          # Ressources CPU/mémoire définies dans values.yaml
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu }}
+              memory: {{ .Values.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu }}
+              memory: {{ .Values.resources.limits.memory }}
+
+          # Liveness probe : si le pod ne répond plus, K8s le redémarre
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.path }}
+              port: 8000
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+
+          # Readiness probe : le pod reçoit du trafic seulement quand il est prêt
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: 8000
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}

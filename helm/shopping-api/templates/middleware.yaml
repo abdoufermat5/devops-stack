@@ -1,0 +1,27 @@
+# -------------------------------------------------------
+# Middleware Traefik — strip-api-prefix
+#
+# Traefik est l'Ingress Controller de k3s. Il supporte
+# des "middlewares" qui transforment la requête avant
+# de la transmettre au backend.
+#
+# Ici, StripPrefix retire /api de l'URL entrante :
+#   Requête cliente  : GET /api/products
+#   Requête au pod   : GET /products        ← FastAPI comprend ça
+#
+# Sans ce middleware, FastAPI recevrait /api/products
+# et retournerait 404 car aucune route ne commence par /api.
+#
+# Le nom du middleware dans l'Ingress doit être :
+#   {namespace}-{metadata.name}@kubernetescrd
+#   → default-strip-api-prefix@kubernetescrd
+# -------------------------------------------------------
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-api-prefix
+  namespace: default
+spec:
+  stripPrefix:
+    prefixes:
+      - /api

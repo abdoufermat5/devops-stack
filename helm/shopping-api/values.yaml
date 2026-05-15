@@ -1,0 +1,62 @@
+# -------------------------------------------------------
+# VALUES — shopping-api Helm chart
+# Toutes les valeurs overridables par ArgoCD ou helm CLI
+# -------------------------------------------------------
+
+# Image Docker de l'application
+# registry pointe vers le registry local qu'on installe à l'étape 1
+image:
+  repository: localhost:5000/shopping-api
+  tag: "latest"
+  pullPolicy: Always   # Always pour forcer le pull à chaque déploiement
+
+# Nombre de réplicas (pods) à lancer
+replicaCount: 2
+
+# Ressources allouées à chaque pod
+# requests = ce que Kubernetes garantit
+# limits   = le maximum autorisé (le pod est tué si dépassé)
+resources:
+  requests:
+    cpu: "100m"     # 100 millicores = 0.1 vCPU
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+# Service Kubernetes qui expose les pods en interne
+service:
+  type: NodePort
+  port: 8000
+  nodePort: 30800   # port accessible depuis l'extérieur du cluster
+
+# PostgreSQL — coordonnées de la base de données
+# Le host correspond au nom du Service K8s créé par Bitnami PostgreSQL
+# Format : {release-name}-postgresql  (on installera avec --name shopping-db)
+database:
+  host: "shopping-db-postgresql"
+  port: 5432
+  name: "shopping_db"
+  user: "shopping"
+  # Le mot de passe est stocké dans le Secret K8s, pas ici
+  # (on ne met jamais de secrets en clair dans values.yaml)
+
+# Probe de liveness : Kubernetes redémarre le pod si ce check échoue
+# FastAPI répond sur / → on l'utilise comme healthcheck
+livenessProbe:
+  path: /
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+# Probe de readiness : Kubernetes n'envoie du trafic que quand ce check passe
+# Évite d'envoyer des requêtes à un pod qui n'a pas encore fini de démarrer
+readinessProbe:
+  path: /docs
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Monitoring Prometheus
+# Si true, ajoute les annotations qui permettent à Prometheus de scraper ce service
+monitoring:
+  enabled: true
+  metricsPath: /metrics
