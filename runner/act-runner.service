@@ -1,0 +1,17 @@
+[Unit]
+Description=Gitea Actions Runner
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+User=osboxes
+WorkingDirectory=/home/osboxes
+ExecStart=/home/osboxes/act_runner daemon
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
