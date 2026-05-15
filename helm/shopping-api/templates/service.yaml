@@ -24,7 +24,8 @@ spec:
     # Doit correspondre exactement aux labels du Deployment
     app: shopping-api
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: {{ .Values.service.port }}         # port interne au cluster
       targetPort: 8000                         # port du conteneur
       nodePort: {{ .Values.service.nodePort }} # port externe (30800)
