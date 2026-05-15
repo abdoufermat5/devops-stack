@@ -28,13 +28,7 @@ spec:
     path: helm/shopping-api       # chemin vers le chart dans le repo
 
     # On précise à ArgoCD que c'est un chart Helm (pas des manifestes bruts)
-    helm:
-      # On peut override des values ici sans modifier le values.yaml du repo
-      # Utile pour les différences entre environnements (dev vs prod)
-      values: |
-        replicaCount: 2
-        image:
-          tag: "latest"
+    helm: {}
 
   # Destination : où déployer dans le cluster
   destination:
