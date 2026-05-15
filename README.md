@@ -1,4 +1,4 @@
-# Shopping List API
+# DevOps Stack
 
 API REST construite avec FastAPI et PostgreSQL pour gérer une liste de courses. Déployée sur Kubernetes (k3s) via un pipeline GitOps complet : Gitea → Gitea Actions → ArgoCD → k3s.
 
